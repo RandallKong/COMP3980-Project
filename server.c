@@ -25,18 +25,21 @@ static void handle_arguments(const char *ip_address, const char *port_str,
 static in_port_t parse_in_port_t(const char *port_str);
 static void convert_address(const char *address, struct sockaddr_storage *addr);
 static int socket_create(int domain, int type, int protocol);
-static void socket_bind(int sockfd, struct sockaddr_storage *addr,
-                        in_port_t port);
-static void start_listening(int server_fd, int backlog);
+static int socket_bind(int sockfd, struct sockaddr_storage *addr,
+                       in_port_t port);
+static void start_listening(int server_fd);
 static int socket_accept_connection(int server_fd,
                                     struct sockaddr_storage *client_addr,
                                     socklen_t *client_addr_len);
+static void socket_connect(int sockfd, struct sockaddr_storage *addr,
+                           in_port_t port);
 static void handle_connection(int client_sockfd,
                               struct sockaddr_storage *client_addr);
 static void socket_close(int sockfd);
 
 #define BASE_TEN 10
-#define BUFFER 5000
+// #define BUFFER 5000
+#define MAX_CONNECTIONS 1
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static volatile sig_atomic_t exit_flag = 0;
@@ -45,9 +48,10 @@ int main(int argc, char *argv[]) {
   char *address;
   char *port_str;
   in_port_t port;
-  int backlog = BASE_TEN;
   int sockfd;
   struct sockaddr_storage addr;
+
+  int bindResult;
 
   address = NULL;
   port_str = NULL;
@@ -56,29 +60,44 @@ int main(int argc, char *argv[]) {
   handle_arguments(address, port_str, &port);
   convert_address(address, &addr);
   sockfd = socket_create(addr.ss_family, SOCK_STREAM, 0);
-  socket_bind(sockfd, &addr, port);
-  start_listening(sockfd, backlog);
-  setup_signal_handler();
+  bindResult = socket_bind(sockfd, &addr, port);
 
-  while (!exit_flag) {
+  if (bindResult != -1) {
     int client_sockfd;
     struct sockaddr_storage client_addr;
     socklen_t client_addr_len;
+    start_listening(sockfd);
+    setup_signal_handler();
+
+    //    while (!exit_flag) {
+    //      int client_sockfd;
+    //      struct sockaddr_storage client_addr;
+    //      socklen_t client_addr_len;
+    //
+    //      client_addr_len = sizeof(client_addr);
+    //      client_sockfd =
+    //          socket_accept_connection(sockfd, &client_addr,
+    //          &client_addr_len);
+    //
+    //      if (client_sockfd == -1) {
+    //        if (exit_flag) {
+    //          break;
+    //        }
+    //
+    //        continue;
+    //      }
+    //
+    //      handle_connection(client_sockfd, &client_addr);
+    //      socket_close(client_sockfd);
+    //    }
 
     client_addr_len = sizeof(client_addr);
     client_sockfd =
         socket_accept_connection(sockfd, &client_addr, &client_addr_len);
-
-    if (client_sockfd == -1) {
-      if (exit_flag) {
-        break;
-      }
-
-      continue;
-    }
-
     handle_connection(client_sockfd, &client_addr);
     socket_close(client_sockfd);
+  } else {
+    socket_connect(sockfd, &addr, port);
   }
 
   shutdown(sockfd, SHUT_RDWR);
@@ -182,12 +201,13 @@ static int socket_create(int domain, int type, int protocol) {
   return sockfd;
 }
 
-static void socket_bind(int sockfd, struct sockaddr_storage *addr,
-                        in_port_t port) {
+static int socket_bind(int sockfd, struct sockaddr_storage *addr,
+                       in_port_t port) {
   char addr_str[INET6_ADDRSTRLEN];
   socklen_t addr_len;
   void *vaddr;
   in_port_t net_port;
+  int bindResult;
 
   net_port = htons(port);
 
@@ -218,25 +238,31 @@ static void socket_bind(int sockfd, struct sockaddr_storage *addr,
     exit(EXIT_FAILURE);
   }
 
-  printf("Binding to: %s:%u\n", addr_str, port);
+  //  printf("Binding to: %s:%u\n", addr_str, port);
 
-  if (bind(sockfd, (struct sockaddr *)addr, addr_len) == -1) {
-    perror("Binding failed");
-    fprintf(stderr, "Error code: %d\n", errno);
-    exit(EXIT_FAILURE);
+  //  if (bind(sockfd, (struct sockaddr *)addr, addr_len) == -1) {
+  //    perror("Binding failed");
+  //    fprintf(stderr, "Error code: %d\n", errno);
+  //    exit(EXIT_FAILURE);
+  //  }
+
+  bindResult = bind(sockfd, (struct sockaddr *)addr, addr_len);
+
+  if (bindResult != -1) {
+    printf("Bound to socket: %s:%u\n", addr_str, port);
   }
 
-  printf("Bound to socket: %s:%u\n", addr_str, port);
+  return bindResult;
 }
 
-static void start_listening(int server_fd, int backlog) {
-  if (listen(server_fd, backlog) == -1) {
+static void start_listening(int server_fd) {
+  if (listen(server_fd, MAX_CONNECTIONS) == -1) {
     perror("listen failed");
     close(server_fd);
     exit(EXIT_FAILURE);
   }
 
-  printf("Listening for incoming connections...\n");
+  printf("Waiting for a friend to connect...\n");
 }
 
 static int socket_accept_connection(int server_fd,
@@ -260,13 +286,56 @@ static int socket_accept_connection(int server_fd,
 
   if (getnameinfo((struct sockaddr *)client_addr, *client_addr_len, client_host,
                   NI_MAXHOST, client_service, NI_MAXSERV, 0) == 0) {
-    printf("Accepted a new connection from %s:%s\n", client_host,
-           client_service);
+    printf("You are now chatting on %s:%s\n", client_host, client_service);
   } else {
     printf("Unable to get client information\n");
   }
 
   return client_fd;
+}
+
+static void socket_connect(int sockfd, struct sockaddr_storage *addr,
+                           in_port_t port) {
+  char addr_str[INET6_ADDRSTRLEN];
+  in_port_t net_port;
+  socklen_t addr_len;
+
+  if (inet_ntop(addr->ss_family,
+                addr->ss_family == AF_INET
+                    ? (void *)&(((struct sockaddr_in *)addr)->sin_addr)
+                    : (void *)&(((struct sockaddr_in6 *)addr)->sin6_addr),
+                addr_str, sizeof(addr_str)) == NULL) {
+    perror("inet_ntop\n");
+    exit(EXIT_FAILURE);
+  }
+
+  printf("Connecting to: %s:%u\n", addr_str, port);
+  net_port = htons(port);
+
+  if (addr->ss_family == AF_INET) {
+    struct sockaddr_in *ipv4_addr;
+
+    ipv4_addr = (struct sockaddr_in *)addr;
+    ipv4_addr->sin_port = net_port;
+    addr_len = sizeof(struct sockaddr_in);
+  } else if (addr->ss_family == AF_INET6) {
+    struct sockaddr_in6 *ipv6_addr;
+
+    ipv6_addr = (struct sockaddr_in6 *)addr;
+    ipv6_addr->sin6_port = net_port;
+    addr_len = sizeof(struct sockaddr_in6);
+  } else {
+    fprintf(stderr, "Invalid address family: %d\n", addr->ss_family);
+    exit(EXIT_FAILURE);
+  }
+
+  if (connect(sockfd, (struct sockaddr *)addr, addr_len) == -1) {
+    printf("there are no existing network server sockets available with this "
+           "ip and port\n");
+    exit(EXIT_FAILURE);
+  }
+
+  printf("You are now chatting on %s:%u\n", addr_str, port);
 }
 
 static void setup_signal_handler(void) {
@@ -297,39 +366,49 @@ static void setup_signal_handler(void) {
 
 static void handle_connection(int client_sockfd,
                               struct sockaddr_storage *client_addr) {
-  ssize_t bytesRead;
-  char message[BUFFER];
-  int client_stdout;
-  int original_stdout;
+  //  ssize_t bytesRead;
+  //  char rec[BUFFER];
+  //  char message[BUFFER];
+  //  int client_stdout;
+  //  int original_stdout;
+  //
+  //  bytesRead = read(client_sockfd, rec, sizeof(rec));
+  //  if (bytesRead > 0) {
+  //    rec[bytesRead] = '\0';
+  //    printf("message from peer: %s\n", rec);
+  //  }
+  //
+  //  // NOLINTNEXTLINE(android-cloexec-dup)
+  //  original_stdout = dup(STDOUT_FILENO);
+  //  if (original_stdout == -1) {
+  //    perror("dup");
+  //    exit(EXIT_FAILURE);
+  //  }
+  //
+  //  client_stdout = dup2(client_sockfd, STDOUT_FILENO);
+  //  if (client_stdout == -1) {
+  //    perror("dup2\n");
+  //    exit(EXIT_FAILURE);
+  //  }
+  //
+  //  fflush(stdout);
+  //
+  //  if (dup2(original_stdout, STDOUT_FILENO) == -1) {
+  //    perror("dup2 revert\n");
+  //    exit(EXIT_FAILURE);
+  //  }
+  //
+  //  close(original_stdout);
+  //  fflush(stdout);
+  //
+  //  printf("enter a message: ");
+  //  fgets(message, sizeof(message), stdin);
+  //
+  //  printf("message: %s\n", message);
+  //
+  //  write(client_sockfd, message, sizeof(message) - 1);
 
-  bytesRead = read(client_sockfd, message, sizeof(message));
-  if (bytesRead > 0) {
-    message[bytesRead] = '\0';
-    printf("Command from client: %s\n", message);
-  }
-
-  // NOLINTNEXTLINE(android-cloexec-dup)
-  original_stdout = dup(STDOUT_FILENO);
-  if (original_stdout == -1) {
-    perror("dup");
-    exit(EXIT_FAILURE);
-  }
-
-  client_stdout = dup2(client_sockfd, STDOUT_FILENO);
-  if (client_stdout == -1) {
-    perror("dup2\n");
-    exit(EXIT_FAILURE);
-  }
-
-  fflush(stdout);
-
-  if (dup2(original_stdout, STDOUT_FILENO) == -1) {
-    perror("dup2 revert\n");
-    exit(EXIT_FAILURE);
-  }
-
-  close(original_stdout);
-  fflush(stdout);
+  (void)client_sockfd;
 }
 
 #pragma GCC diagnostic pop
