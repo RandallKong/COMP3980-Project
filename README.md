@@ -11,8 +11,8 @@ COMP3980 - Randall and Dinuja Project
 1) ./chat -a [IPV4 or IPV6 ip addr] [port]
 2) ./chat -c [IPV4 or IPV6 ip addr] [port]
 
-**-a** to listen on IP addr and port
-**-c** to connect to server network socket
+- **-a** to listen on IP addr and port
+- **-c** to connect to server network socket
 
 with IO Redirection
 - ./chat -c [IPV4 or IPV6 ip addr] [port] < [txt file]
