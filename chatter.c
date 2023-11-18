@@ -1,10 +1,6 @@
-// Randall Kong
-// A01279243
-
 #include <arpa/inet.h>
 #include <errno.h>
 #include <inttypes.h>
-#include <limits.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <signal.h>
@@ -69,35 +65,17 @@ int main(int argc, char *argv[]) {
     start_listening(sockfd);
     setup_signal_handler();
 
-    //    while (!exit_flag) {
-    //      int client_sockfd;
-    //      struct sockaddr_storage client_addr;
-    //      socklen_t client_addr_len;
-    //
-    //      client_addr_len = sizeof(client_addr);
-    //      client_sockfd =
-    //          socket_accept_connection(sockfd, &client_addr,
-    //          &client_addr_len);
-    //
-    //      if (client_sockfd == -1) {
-    //        if (exit_flag) {
-    //          break;
-    //        }
-    //
-    //        continue;
-    //      }
-    //
-    //      handle_connection(client_sockfd, &client_addr);
-    //      socket_close(client_sockfd);
-    //    }
-
     client_addr_len = sizeof(client_addr);
     client_sockfd =
         socket_accept_connection(sockfd, &client_addr, &client_addr_len);
+
+    // TODO: DO STUFF
     handle_connection(client_sockfd, &client_addr);
     socket_close(client_sockfd);
   } else {
     socket_connect(sockfd, &addr, port);
+
+    // TODO: DO STUFF
   }
 
   shutdown(sockfd, SHUT_RDWR);
@@ -286,7 +264,7 @@ static int socket_accept_connection(int server_fd,
 
   if (getnameinfo((struct sockaddr *)client_addr, *client_addr_len, client_host,
                   NI_MAXHOST, client_service, NI_MAXSERV, 0) == 0) {
-    printf("You are now chatting on %s:%s\n", client_host, client_service);
+    printf("You are now chatting with %s:%s\n", client_host, client_service);
   } else {
     printf("Unable to get client information\n");
   }
@@ -335,7 +313,7 @@ static void socket_connect(int sockfd, struct sockaddr_storage *addr,
     exit(EXIT_FAILURE);
   }
 
-  printf("You are now chatting on %s:%u\n", addr_str, port);
+  printf("You are now chatting with the host of %s:%u\n", addr_str, port);
 }
 
 static void setup_signal_handler(void) {
