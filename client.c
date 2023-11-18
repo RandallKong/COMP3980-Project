@@ -47,16 +47,6 @@ int main(int argc, char *argv[]) {
 
   write(sockfd, command, strlen(command));
 
-  //  while ((bytesRead = read(sockfd, message, sizeof(message))) > 0) {
-  //    message[bytesRead] = '\0';
-  //
-  //    if (strcmp(message, "end") == 0) {
-  //      break;
-  //    }
-  //
-  //    printf("%s", message);
-  //  }
-
   bytesRead = read(sockfd, message, sizeof(message));
 
   if (bytesRead > 0) {

@@ -35,16 +35,8 @@ static void handle_connection(int client_sockfd,
                               struct sockaddr_storage *client_addr);
 static void socket_close(int sockfd);
 
-void execute_command(char *arg);
-pid_t create_child_process(void);
-void await_child_process(void);
-void parse_command_args(char *arg, char *args[]);
-char *trim(const char *str);
-void attemptCommand(char *path, char *args[]);
-
 #define BASE_TEN 10
 #define BUFFER 5000
-#define ARGS_LEN 100
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static volatile sig_atomic_t exit_flag = 0;
@@ -329,10 +321,7 @@ static void handle_connection(int client_sockfd,
     exit(EXIT_FAILURE);
   }
 
-  execute_command(message);
   fflush(stdout);
-
-  // write(client_sockfd, "end", strlen("end"));
 
   if (dup2(original_stdout, STDOUT_FILENO) == -1) {
     perror("dup2 revert\n");
@@ -350,126 +339,4 @@ static void socket_close(int sockfd) {
     perror("Error closing socket\n");
     exit(EXIT_FAILURE);
   }
-}
-
-void execute_command(char *arg) {
-  pid_t childPid;
-  char *path = getenv("PATH");
-  char *args[ARGS_LEN];
-
-  for (int i = 0; i < ARGS_LEN - 1; i++) {
-    args[i] = (char *)malloc(BASE_TEN * sizeof(char));
-  }
-
-  parse_command_args(arg, args);
-
-  childPid = create_child_process();
-
-  if (childPid == 0) {
-    attemptCommand(path, args);
-    for (int i = 0; i < ARGS_LEN - 1; i++) {
-      free(args[i]);
-    }
-    exit(0);
-  } else {
-    await_child_process();
-  }
-}
-
-pid_t create_child_process(void) {
-  pid_t childPid = fork();
-
-  if (childPid == -1) {
-    perror("Error creating child process\n");
-    return EXIT_FAILURE;
-  }
-
-  return childPid;
-}
-
-void await_child_process(void) {
-  int child;
-
-  wait(&child);
-}
-
-void parse_command_args(char *arg, char *args[]) {
-  char *token;
-  char *command;
-  char *savePtr;
-  int counter = 0;
-
-  token = strtok_r(arg, " ", &savePtr);
-
-  command = trim(token);
-
-  args[counter] = command;
-
-  while (token != NULL && counter < ARGS_LEN - 1) {
-    char *option;
-    counter++;
-    token = strtok_r(NULL, " ", &savePtr);
-    option = trim(token);
-    args[counter] = option;
-  }
-}
-
-char *trim(const char *str) {
-  size_t start;
-  size_t end;
-  size_t len;
-  char *trimmed;
-
-  if (str == NULL) {
-    return NULL;
-  }
-
-  start = 0;
-  end = strlen(str) - 1;
-
-  while (str[start] == ' ') {
-    start++;
-  }
-
-  while (end > start && str[end] == ' ') {
-    end--;
-  }
-
-  len = end - start + 1;
-
-  trimmed = (char *)malloc(len + 1);
-
-  if (trimmed == NULL) {
-    return NULL;
-  }
-
-  strncpy(trimmed, str + start, len);
-  trimmed[len] = '\0';
-
-  return trimmed;
-}
-
-void attemptCommand(char *path, char *args[]) {
-  char *saveptr;
-  char *dir = strtok_r(path, ":", &saveptr);
-
-  while (dir != NULL) {
-    char testPath[PATH_MAX] = "";
-
-    if (args == NULL) {
-      perror("args are null\n");
-      exit(EXIT_FAILURE);
-    }
-
-    snprintf(testPath, sizeof(testPath), "%s/%s", dir, args[0]);
-
-    if (access(testPath, X_OK) == 0) {
-      execv(testPath, args);
-      perror("execv\n");
-    }
-
-    dir = strtok_r(NULL, ":", &saveptr);
-  }
-
-  printf("Invalid command.\n");
 }
