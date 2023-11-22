@@ -1,6 +1,8 @@
 # COMP3980-Project
 COMP3980 - Randall and Dinuja Project
 
+**CURRENT IMPLEMENTATIONS WORK ON: freeBSD, macos, Fedora**
+
 **SET UP STEPS**
 1) ./generate-flags.sh
 2) ./generate-cmakelists.sh
