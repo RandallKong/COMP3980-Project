@@ -358,9 +358,12 @@ static void *read_thread_function(void *arg) {
   char buffer[BUFFER_SIZE];
 
   while (!exit_flag) {
-    if (fgets(buffer, BUFFER_SIZE, stdin) != NULL) {
-      send(sockfd, buffer, strlen(buffer), 0);
+    if (fgets(buffer, BUFFER_SIZE, stdin) == NULL) {
+      exit_flag = 1;
+      shutdown(sockfd, SHUT_RDWR); // Shutdown the socket to signal the other side
+      break;
     }
+    send(sockfd, buffer, strlen(buffer), 0);
   }
 
   return NULL;
@@ -375,12 +378,9 @@ static void *write_thread_function(void *arg) {
     if (n > 0) {
       buffer[n] = '\0';
       printf("Received: %s", buffer);
-    } else if (n == 0) {
-      // Connection closed by the other side
-      break;
-    } else if (errno != EINTR) {
-      // Error occurred, not caused by interrupt
-      perror("recv error");
+    } else {
+      // Either connection closed by the other side, or error occurred
+      exit_flag = 1;
       break;
     }
   }
