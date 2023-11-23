@@ -3,6 +3,7 @@
 #include <inttypes.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -13,28 +14,44 @@
 #include <unistd.h>
 
 static void setup_signal_handler(void);
+
 static void sigint_handler(int signum);
+
 static void parse_arguments(int argc, char *argv[], char **ip_address,
                             char **port);
+
 static void handle_arguments(const char *ip_address, const char *port_str,
                              in_port_t *port);
+
 static in_port_t parse_in_port_t(const char *port_str);
+
 static void convert_address(const char *address, struct sockaddr_storage *addr);
+
 static int socket_create(int domain, int type, int protocol);
+
 static int socket_bind(int sockfd, struct sockaddr_storage *addr,
                        in_port_t port);
+
 static void start_listening(int server_fd);
+
 static int socket_accept_connection(int server_fd,
                                     struct sockaddr_storage *client_addr,
                                     socklen_t *client_addr_len);
+
 static void socket_connect(int sockfd, struct sockaddr_storage *addr,
                            in_port_t port);
+
 static void handle_connection(int client_sockfd,
                               struct sockaddr_storage *client_addr);
+
+static void *read_thread_function(void *arg);
+
+static void *write_thread_function(void *arg);
+
 static void socket_close(int sockfd);
 
 #define BASE_TEN 10
-// #define BUFFER 5000
+#define BUFFER_SIZE 1024
 #define MAX_CONNECTIONS 1
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -58,28 +75,29 @@ int main(int argc, char *argv[]) {
   sockfd = socket_create(addr.ss_family, SOCK_STREAM, 0);
   bindResult = socket_bind(sockfd, &addr, port);
 
+  setup_signal_handler(); // Set up signal handler for both server and client
+
   if (bindResult != -1) {
-    int client_sockfd;
+    // Server code
     struct sockaddr_storage client_addr;
-    socklen_t client_addr_len;
+    socklen_t client_addr_len = sizeof(client_addr);
     start_listening(sockfd);
-    setup_signal_handler();
 
-    client_addr_len = sizeof(client_addr);
-    client_sockfd =
-        socket_accept_connection(sockfd, &client_addr, &client_addr_len);
-
-    // TODO: DO STUFF
-    handle_connection(client_sockfd, &client_addr);
-    socket_close(client_sockfd);
+    while (!exit_flag) {
+      int client_sockfd =
+          socket_accept_connection(sockfd, &client_addr, &client_addr_len);
+      if (client_sockfd != -1) {
+        handle_connection(client_sockfd, &client_addr);
+        socket_close(client_sockfd);
+      }
+    }
   } else {
+    // Client code
     socket_connect(sockfd, &addr, port);
-
-    // TODO: DO STUFF
+    handle_connection(sockfd, &addr);
   }
 
   shutdown(sockfd, SHUT_RDWR);
-
   socket_close(sockfd);
 
   return EXIT_SUCCESS;
@@ -136,6 +154,7 @@ in_port_t parse_in_port_t(const char *str) {
 
   return (in_port_t)parsed_value;
 }
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
@@ -215,14 +234,6 @@ static int socket_bind(int sockfd, struct sockaddr_storage *addr,
     perror("inet_ntop\n");
     exit(EXIT_FAILURE);
   }
-
-  //  printf("Binding to: %s:%u\n", addr_str, port);
-
-  //  if (bind(sockfd, (struct sockaddr *)addr, addr_len) == -1) {
-  //    perror("Binding failed");
-  //    fprintf(stderr, "Error code: %d\n", errno);
-  //    exit(EXIT_FAILURE);
-  //  }
 
   bindResult = bind(sockfd, (struct sockaddr *)addr, addr_len);
 
@@ -318,25 +329,9 @@ static void socket_connect(int sockfd, struct sockaddr_storage *addr,
 
 static void setup_signal_handler(void) {
   struct sigaction sa;
-
   memset(&sa, 0, sizeof(sa));
-
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdisabled-macro-expansion"
-#endif
   sa.sa_handler = sigint_handler;
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#endif
-
-  sigemptyset(&sa.sa_mask);
-  sa.sa_flags = 0;
-
-  if (sigaction(SIGINT, &sa, NULL) == -1) {
-    perror("sigaction");
-    exit(EXIT_FAILURE);
-  }
+  sigaction(SIGINT, &sa, NULL);
 }
 
 #pragma GCC diagnostic push
@@ -344,49 +339,53 @@ static void setup_signal_handler(void) {
 
 static void handle_connection(int client_sockfd,
                               struct sockaddr_storage *client_addr) {
-  //  ssize_t bytesRead;
-  //  char rec[BUFFER];
-  //  char message[BUFFER];
-  //  int client_stdout;
-  //  int original_stdout;
-  //
-  //  bytesRead = read(client_sockfd, rec, sizeof(rec));
-  //  if (bytesRead > 0) {
-  //    rec[bytesRead] = '\0';
-  //    printf("message from peer: %s\n", rec);
-  //  }
-  //
-  //  // NOLINTNEXTLINE(android-cloexec-dup)
-  //  original_stdout = dup(STDOUT_FILENO);
-  //  if (original_stdout == -1) {
-  //    perror("dup");
-  //    exit(EXIT_FAILURE);
-  //  }
-  //
-  //  client_stdout = dup2(client_sockfd, STDOUT_FILENO);
-  //  if (client_stdout == -1) {
-  //    perror("dup2\n");
-  //    exit(EXIT_FAILURE);
-  //  }
-  //
-  //  fflush(stdout);
-  //
-  //  if (dup2(original_stdout, STDOUT_FILENO) == -1) {
-  //    perror("dup2 revert\n");
-  //    exit(EXIT_FAILURE);
-  //  }
-  //
-  //  close(original_stdout);
-  //  fflush(stdout);
-  //
-  //  printf("enter a message: ");
-  //  fgets(message, sizeof(message), stdin);
-  //
-  //  printf("message: %s\n", message);
-  //
-  //  write(client_sockfd, message, sizeof(message) - 1);
+  pthread_t read_thread;
+  pthread_t write_thread;
+
+  pthread_create(&read_thread, NULL, read_thread_function,
+                 (void *)&client_sockfd);
+  pthread_create(&write_thread, NULL, write_thread_function,
+                 (void *)&client_sockfd);
+
+  pthread_join(read_thread, NULL);
+  pthread_join(write_thread, NULL);
 
   (void)client_sockfd;
+}
+
+static void *read_thread_function(void *arg) {
+  int sockfd = *((int *)arg);
+  char buffer[BUFFER_SIZE];
+
+  while (!exit_flag) {
+    if (fgets(buffer, BUFFER_SIZE, stdin) != NULL) {
+      send(sockfd, buffer, strlen(buffer), 0);
+    }
+  }
+
+  return NULL;
+}
+
+static void *write_thread_function(void *arg) {
+  int sockfd = *((int *)arg);
+  char buffer[BUFFER_SIZE];
+
+  while (!exit_flag) {
+    ssize_t n = recv(sockfd, buffer, BUFFER_SIZE - 1, 0);
+    if (n > 0) {
+      buffer[n] = '\0';
+      printf("Received: %s", buffer);
+    } else if (n == 0) {
+      // Connection closed by the other side
+      break;
+    } else if (errno != EINTR) {
+      // Error occurred, not caused by interrupt
+      perror("recv error");
+      break;
+    }
+  }
+
+  return NULL;
 }
 
 #pragma GCC diagnostic pop
