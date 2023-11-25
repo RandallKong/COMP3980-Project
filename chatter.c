@@ -55,7 +55,9 @@ static void socket_close(int sockfd);
 // TODO: ADDED BELOW
 
 // void *read_stdin_thread(void *arg);
-static void write_file_contents(int sockfd);
+// static void write_file_contents(int sockfd);
+
+static void *file_thread(void *arg);
 
 bool isStdinReady(void);
 
@@ -64,7 +66,7 @@ bool isStdinReady(void);
 #define MAX_CONNECTIONS 1
 #define EXPECTED_NUM_ARGS 3
 
-#define TIMEOUT_TIME 5
+// #define TIMEOUT_TIME 5
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static volatile sig_atomic_t exit_flag = 0;
@@ -368,31 +370,81 @@ static void handle_connection(int client_sockfd,
                               struct sockaddr_storage *client_addr) {
   pthread_t read_thread;
   pthread_t write_thread;
-  //  pthread_t stdin_thread;
+  pthread_t stdin_thread = NULL;
 
   if (isStdinReady()) {
-    write_file_contents(client_sockfd);
+    pthread_create(&stdin_thread, NULL, file_thread, (void *)&client_sockfd);
+    // pthread_join(stdin_thread, NULL);
   }
 
+  //  pthread_create(&stdin_thread, NULL, file_thread, (void *)&client_sockfd);
   pthread_create(&read_thread, NULL, read_thread_function,
                  (void *)&client_sockfd);
   pthread_create(&write_thread, NULL, write_thread_function,
                  (void *)&client_sockfd);
-  //  pthread_create(&stdin_thread, NULL, read_stdin_thread,
-  //                 (void *)&client_sockfd);
 
+  pthread_join(stdin_thread, NULL);
   pthread_join(read_thread, NULL);
   pthread_join(write_thread, NULL);
-  //  pthread_join(stdin_thread, NULL);
 }
+
+// static void *read_thread_function(void *arg) {
+//   int sockfd = *((int *)arg);
+//   char buffer[BUFFER_SIZE];
+//
+//   while (!exit_flag) {
+//     int tty_fd;
+//
+//     tty_fd = open("/dev/tty", O_RDONLY | O_CLOEXEC);
+//     if (tty_fd == -1) {
+//       perror("Unable to open /dev/tty");
+//       exit(EXIT_FAILURE);
+//     }
+//
+//     // Use dup2 to duplicate the terminal FD to stdin
+//     if (dup2(tty_fd, STDIN_FILENO) == -1) {
+//       perror("dup2 failed");
+//       close(tty_fd);
+//       exit(EXIT_FAILURE);
+//     }
+//
+//     if (fgets(buffer, BUFFER_SIZE, stdin) != NULL) {
+//       send(sockfd, buffer, strlen(buffer), 0);
+//     }
+//   }
+//
+//   return NULL;
+// }
 
 static void *read_thread_function(void *arg) {
   int sockfd = *((int *)arg);
   char buffer[BUFFER_SIZE];
+  int tty_fd;
 
   while (!exit_flag) {
-    if (fgets(buffer, BUFFER_SIZE, stdin) != NULL) {
+    int is_stdin_terminal;
+    FILE *input_stream;
+    // Check if STDIN_FILENO is a terminal in each iteration
+    is_stdin_terminal = isatty(STDIN_FILENO);
+
+    if (!is_stdin_terminal) {
+      tty_fd = open("/dev/tty", O_RDONLY | O_CLOEXEC);
+      if (tty_fd == -1) {
+        perror("Unable to open /dev/tty");
+        continue; // Consider using continue instead of exit to keep the thread
+                  // running
+      }
+    } else {
+      tty_fd = STDIN_FILENO;
+    }
+
+    input_stream = is_stdin_terminal ? stdin : fdopen(tty_fd, "r");
+    if (fgets(buffer, BUFFER_SIZE, input_stream) != NULL) {
       send(sockfd, buffer, strlen(buffer), 0);
+    }
+
+    if (!is_stdin_terminal) {
+      fclose(input_stream); // Close the stream if it's not stdin
     }
   }
 
@@ -407,7 +459,7 @@ static void *write_thread_function(void *arg) {
     ssize_t n = recv(sockfd, buffer, BUFFER_SIZE - 1, 0);
     if (n > 0) {
       buffer[n] = '\0';
-      printf("Received: %s", buffer);
+      printf("Received:\n%s", buffer);
     } else if (n == 0) {
       // Connection closed by the other side
       break;
@@ -421,43 +473,83 @@ static void *write_thread_function(void *arg) {
   return NULL;
 }
 
-static void write_file_contents(int sockfd) {
-  char buffer[BUFFER_SIZE];
-  int tty_fd;
+// static void write_file_contents(int sockfd) {
+//   char buffer[BUFFER_SIZE];
+//   int tty_fd;
+//
+//   while (1) {
+//     ssize_t n;
+//     // Read data from stdin
+//     n = read(STDIN_FILENO, buffer, BUFFER_SIZE - 1);
+//     if (n > 0) {
+//       buffer[n] = '\0';
+//       send(sockfd, buffer, strlen(buffer), 0);
+//     } else if (n == 0) {
+//       // No more data (EOF)
+//       break;
+//     } else if (errno != EINTR) {
+//       // Error occurred, not caused by interrupt
+//       perror("read error");
+//       exit(EXIT_FAILURE);
+//     }
+//   }
+//
+//   // Open the terminal device
+//   tty_fd = open("/dev/tty", O_RDONLY | O_CLOEXEC);
+//   if (tty_fd == -1) {
+//     perror("Unable to open /dev/tty");
+//     exit(EXIT_FAILURE);
+//   }
+//
+//   // Use dup2 to duplicate the terminal FD to stdin
+//   if (dup2(tty_fd, STDIN_FILENO) == -1) {
+//     perror("dup2 failed");
+//     close(tty_fd);
+//     exit(EXIT_FAILURE);
+//   }
+//
+//   // Close the original tty FD as it's no longer needed
+//   close(tty_fd);
+// }
 
-  while (1) {
-    ssize_t n;
-    // Read data from stdin
-    n = read(STDIN_FILENO, buffer, BUFFER_SIZE - 1);
-    if (n > 0) {
-      buffer[n] = '\0';
-      send(sockfd, buffer, strlen(buffer), 0);
-    } else if (n == 0) {
-      // No more data (EOF)
-      break;
-    } else if (errno != EINTR) {
-      // Error occurred, not caused by interrupt
-      perror("read error");
-      exit(EXIT_FAILURE);
-    }
+static void *file_thread(void *arg) {
+  int sockfd = *((int *)arg);
+  char buffer[BUFFER_SIZE];
+  // int tty_fd;
+
+  ssize_t n;
+  // Read data from stdin
+  n = read(STDIN_FILENO, buffer, BUFFER_SIZE - 1);
+  if (n > 0) {
+    buffer[n] = '\n';
+    send(sockfd, buffer, strlen(buffer), 0);
+  } else if (n == 0) {
+    printf("im done");
+    // done
+  } else if (errno != EINTR) {
+    // Error occurred, not caused by interrupt
+    perror("read error");
+    exit(EXIT_FAILURE);
   }
 
   // Open the terminal device
-  tty_fd = open("/dev/tty", O_RDONLY | O_CLOEXEC);
-  if (tty_fd == -1) {
-    perror("Unable to open /dev/tty");
-    exit(EXIT_FAILURE);
-  }
-
-  // Use dup2 to duplicate the terminal FD to stdin
-  if (dup2(tty_fd, STDIN_FILENO) == -1) {
-    perror("dup2 failed");
-    close(tty_fd);
-    exit(EXIT_FAILURE);
-  }
+  //  tty_fd = open("/dev/tty", O_RDONLY | O_CLOEXEC);
+  //  if (tty_fd == -1) {
+  //    perror("Unable to open /dev/tty");
+  //    exit(EXIT_FAILURE);
+  //  }
+  //
+  //  // Use dup2 to duplicate the terminal FD to stdin
+  //  if (dup2(tty_fd, STDIN_FILENO) == -1) {
+  //    perror("dup2 failed");
+  //    close(tty_fd);
+  //    exit(EXIT_FAILURE);
+  //  }
 
   // Close the original tty FD as it's no longer needed
-  close(tty_fd);
+  // close(tty_fd);
+
+  return NULL;
 }
 
 #pragma GCC diagnostic pop
@@ -474,8 +566,8 @@ bool isStdinReady(void) {
   struct timeval tv;
   int retval;
 
-  // Set up the timeout. Here, we're setting it to 5 seconds.
-  tv.tv_sec = TIMEOUT_TIME;
+  //  // Set up the timeout. Here, we're setting it to 5 seconds.
+  tv.tv_sec = 0;
   tv.tv_usec = 0;
 
   // Initialize the set of file descriptors.
