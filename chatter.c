@@ -5,10 +5,12 @@
 #include <netinet/in.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -50,9 +52,19 @@ static void *write_thread_function(void *arg);
 
 static void socket_close(int sockfd);
 
+// TODO: ADDED BELOW
+
+// void *read_stdin_thread(void *arg);
+static void write_file_contents(int sockfd);
+
+bool isStdinReady(void);
+
 #define BASE_TEN 10
 #define BUFFER_SIZE 1024
 #define MAX_CONNECTIONS 1
+#define EXPECTED_NUM_ARGS 3
+
+#define TIMEOUT_TIME 5
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static volatile sig_atomic_t exit_flag = 0;
@@ -60,6 +72,7 @@ static volatile sig_atomic_t exit_flag = 0;
 int main(int argc, char *argv[]) {
   char *address;
   char *port_str;
+  char *file_name; // TODO: ADDED
   in_port_t port;
   int sockfd;
   struct sockaddr_storage addr;
@@ -68,6 +81,9 @@ int main(int argc, char *argv[]) {
 
   address = NULL;
   port_str = NULL;
+  file_name = NULL;
+
+  (void)file_name;
 
   parse_arguments(argc, argv, &address, &port_str);
   handle_arguments(address, port_str, &port);
@@ -105,14 +121,25 @@ int main(int argc, char *argv[]) {
 
 static void parse_arguments(int argc, char *argv[], char **ip_address,
                             char **port) {
-  if (argc == 3) {
-    *ip_address = argv[1];
-    *port = argv[2];
-  } else {
+  if (argc != EXPECTED_NUM_ARGS) {
     printf("invalid num args\n");
-    printf("usage: ./server [ip addr] [port]\n");
+    printf("usage: ./chat [ip addr] [port]\n");
+    printf("usage: ./chat [ip addr] [port] < [txt file name]");
     exit(EXIT_FAILURE);
   }
+
+  *ip_address = argv[1];
+  *port = argv[2];
+
+  //  if (argc == FILE_IO_NUM_ARGS) {
+  //    if (strcmp(argv[3], "<") == 0) {
+  //      // printf("%s\n", argv[4]);
+  //      //  file_name = argv[4];
+  //    } else {
+  //      printf("invalid redirection character\n");
+  //      exit(EXIT_FAILURE);
+  //    }
+  //  }
 }
 
 static void handle_arguments(const char *ip_address, const char *port_str,
@@ -341,16 +368,22 @@ static void handle_connection(int client_sockfd,
                               struct sockaddr_storage *client_addr) {
   pthread_t read_thread;
   pthread_t write_thread;
+  //  pthread_t stdin_thread;
+
+  if (isStdinReady()) {
+    write_file_contents(client_sockfd);
+  }
 
   pthread_create(&read_thread, NULL, read_thread_function,
                  (void *)&client_sockfd);
   pthread_create(&write_thread, NULL, write_thread_function,
                  (void *)&client_sockfd);
+  //  pthread_create(&stdin_thread, NULL, read_stdin_thread,
+  //                 (void *)&client_sockfd);
 
   pthread_join(read_thread, NULL);
   pthread_join(write_thread, NULL);
-
-  (void)client_sockfd;
+  //  pthread_join(stdin_thread, NULL);
 }
 
 static void *read_thread_function(void *arg) {
@@ -388,6 +421,45 @@ static void *write_thread_function(void *arg) {
   return NULL;
 }
 
+static void write_file_contents(int sockfd) {
+  char buffer[BUFFER_SIZE];
+  int tty_fd;
+
+  while (1) {
+    ssize_t n;
+    // Read data from stdin
+    n = read(STDIN_FILENO, buffer, BUFFER_SIZE - 1);
+    if (n > 0) {
+      buffer[n] = '\0';
+      send(sockfd, buffer, strlen(buffer), 0);
+    } else if (n == 0) {
+      // No more data (EOF)
+      break;
+    } else if (errno != EINTR) {
+      // Error occurred, not caused by interrupt
+      perror("read error");
+      exit(EXIT_FAILURE);
+    }
+  }
+
+  // Open the terminal device
+  tty_fd = open("/dev/tty", O_RDONLY | O_CLOEXEC);
+  if (tty_fd == -1) {
+    perror("Unable to open /dev/tty");
+    exit(EXIT_FAILURE);
+  }
+
+  // Use dup2 to duplicate the terminal FD to stdin
+  if (dup2(tty_fd, STDIN_FILENO) == -1) {
+    perror("dup2 failed");
+    close(tty_fd);
+    exit(EXIT_FAILURE);
+  }
+
+  // Close the original tty FD as it's no longer needed
+  close(tty_fd);
+}
+
 #pragma GCC diagnostic pop
 
 static void socket_close(int sockfd) {
@@ -395,4 +467,32 @@ static void socket_close(int sockfd) {
     perror("Error closing socket\n");
     exit(EXIT_FAILURE);
   }
+}
+
+bool isStdinReady(void) {
+  fd_set read_fds;
+  struct timeval tv;
+  int retval;
+
+  // Set up the timeout. Here, we're setting it to 5 seconds.
+  tv.tv_sec = TIMEOUT_TIME;
+  tv.tv_usec = 0;
+
+  // Initialize the set of file descriptors.
+  FD_ZERO(&read_fds);
+  FD_SET(STDIN_FILENO, &read_fds);
+
+  // Wait for input on stdin (file descriptor 0).
+  retval = select(STDIN_FILENO + 1, &read_fds, NULL, NULL, &tv);
+
+  if (retval == -1) {
+    perror("select()");
+    return false;
+  }
+
+  if (retval) {
+    return true; // Data is available
+  }
+
+  return false; // No data within the timeout period or an error occurred
 }
