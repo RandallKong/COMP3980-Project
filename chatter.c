@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/fcntl.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -356,17 +357,56 @@ static void handle_connection(int sockfd,
   pthread_join(write_thread, NULL);
 }
 
+// static void *read_thread_function(void *arg) {
+//   int sockfd = *((int *)arg);
+//   char buffer[BUFFER_SIZE];
+//
+//   while (!exit_flag) {
+//     if (fgets(buffer, BUFFER_SIZE, stdin) == NULL) {
+//       exit_flag = 1;
+//       shutdown(sockfd, SHUT_RDWR);
+//       break;
+//     }
+//     send(sockfd, buffer, strlen(buffer), 0);
+//   }
+//
+//   return NULL;
+// }
+
 static void *read_thread_function(void *arg) {
   int sockfd = *((int *)arg);
   char buffer[BUFFER_SIZE];
+  int tty_fd;
 
   while (!exit_flag) {
-    if (fgets(buffer, BUFFER_SIZE, stdin) == NULL) {
+    int is_stdin_terminal;
+    FILE *input_stream;
+    // Check if STDIN_FILENO is a terminal in each iteration
+    is_stdin_terminal = isatty(STDIN_FILENO);
+
+    if (!is_stdin_terminal) {
+      tty_fd = open("/dev/tty", O_RDONLY | O_CLOEXEC);
+      if (tty_fd == -1) {
+        perror("Unable to open /dev/tty");
+        continue; // Consider using continue instead of exit to keep the thread
+                  // running
+      }
+    } else {
+      tty_fd = STDIN_FILENO;
+    }
+
+    input_stream = is_stdin_terminal ? stdin : fdopen(tty_fd, "r");
+    if (fgets(buffer, BUFFER_SIZE, input_stream) != NULL) {
+      send(sockfd, buffer, strlen(buffer), 0);
+    } else {
       exit_flag = 1;
       shutdown(sockfd, SHUT_RDWR);
       break;
     }
-    send(sockfd, buffer, strlen(buffer), 0);
+
+    if (!is_stdin_terminal) {
+      fclose(input_stream); // Close the stream if it's not stdin
+    }
   }
 
   return NULL;
