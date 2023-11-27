@@ -5,6 +5,7 @@
 #include <netinet/in.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -50,6 +51,10 @@ static void *write_thread_function(void *arg);
 
 static void socket_close(int sockfd);
 
+bool isStdinReady(void);
+
+static void *file_thread(void *arg);
+
 #define BASE_TEN 10
 #define BUFFER_SIZE 1024
 #define MAX_CONNECTIONS 1
@@ -63,7 +68,6 @@ int main(int argc, char *argv[]) {
   in_port_t port;
   int sockfd;
   struct sockaddr_storage addr;
-
   int bindResult;
 
   address = NULL;
@@ -75,10 +79,9 @@ int main(int argc, char *argv[]) {
   sockfd = socket_create(addr.ss_family, SOCK_STREAM, 0);
   bindResult = socket_bind(sockfd, &addr, port);
 
-  setup_signal_handler(); // Set up signal handler for both server and client
+  setup_signal_handler();
 
   if (bindResult != -1) {
-    // Server code
     struct sockaddr_storage client_addr;
     socklen_t client_addr_len = sizeof(client_addr);
     start_listening(sockfd);
@@ -92,12 +95,10 @@ int main(int argc, char *argv[]) {
       }
     }
   } else {
-    // Client code
     socket_connect(sockfd, &addr, port);
     handle_connection(sockfd, &addr);
   }
 
-  shutdown(sockfd, SHUT_RDWR);
   socket_close(sockfd);
 
   return EXIT_SUCCESS;
@@ -337,20 +338,22 @@ static void setup_signal_handler(void) {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
-static void handle_connection(int client_sockfd,
+static void handle_connection(int sockfd,
                               struct sockaddr_storage *client_addr) {
   pthread_t read_thread;
   pthread_t write_thread;
+  pthread_t stdin_thread = NULL;
 
-  pthread_create(&read_thread, NULL, read_thread_function,
-                 (void *)&client_sockfd);
-  pthread_create(&write_thread, NULL, write_thread_function,
-                 (void *)&client_sockfd);
+  if (isStdinReady()) {
+    pthread_create(&stdin_thread, NULL, file_thread, &sockfd);
+  }
 
+  pthread_create(&read_thread, NULL, read_thread_function, &sockfd);
+  pthread_create(&write_thread, NULL, write_thread_function, &sockfd);
+
+  pthread_join(stdin_thread, NULL);
   pthread_join(read_thread, NULL);
   pthread_join(write_thread, NULL);
-
-  (void)client_sockfd;
 }
 
 static void *read_thread_function(void *arg) {
@@ -360,8 +363,7 @@ static void *read_thread_function(void *arg) {
   while (!exit_flag) {
     if (fgets(buffer, BUFFER_SIZE, stdin) == NULL) {
       exit_flag = 1;
-      shutdown(sockfd,
-               SHUT_RDWR); // Shutdown the socket to signal the other side
+      shutdown(sockfd, SHUT_RDWR);
       break;
     }
     send(sockfd, buffer, strlen(buffer), 0);
@@ -376,14 +378,63 @@ static void *write_thread_function(void *arg) {
 
   while (!exit_flag) {
     ssize_t n = recv(sockfd, buffer, BUFFER_SIZE - 1, 0);
-    if (n > 0) {
-      buffer[n] = '\0';
-      printf("Received: %s", buffer);
-    } else {
-      // Either connection closed by the other side, or error occurred
+    if (n <= 0) {
       exit_flag = 1;
       break;
     }
+    buffer[n] = '\0';
+    printf("Received: %s", buffer);
+  }
+
+  return NULL;
+}
+
+bool isStdinReady(void) {
+  fd_set read_fds;
+  struct timeval tv;
+  int retval;
+
+  //  // Set up the timeout. Here, we're setting it to 5 seconds.
+  tv.tv_sec = 0;
+  tv.tv_usec = 0;
+
+  // Initialize the set of file descriptors.
+  FD_ZERO(&read_fds);
+  FD_SET(STDIN_FILENO, &read_fds);
+
+  // Wait for input on stdin (file descriptor 0).
+  retval = select(STDIN_FILENO + 1, &read_fds, NULL, NULL, &tv);
+
+  if (retval == -1) {
+    perror("select()");
+    return false;
+  }
+
+  if (retval) {
+    return true; // Data is available
+  }
+
+  return false; // No data within the timeout period or an error occurred
+}
+
+static void *file_thread(void *arg) {
+  int sockfd = *((int *)arg);
+  char buffer[BUFFER_SIZE];
+  // int tty_fd;
+
+  ssize_t n;
+  // Read data from stdin
+  n = read(STDIN_FILENO, buffer, BUFFER_SIZE - 1);
+  if (n > 0) {
+    buffer[n] = '\n';
+    send(sockfd, buffer, strlen(buffer), 0);
+  } else if (n == 0) {
+    printf("im done");
+    // done
+  } else if (errno != EINTR) {
+    // Error occurred, not caused by interrupt
+    perror("read error");
+    exit(EXIT_FAILURE);
   }
 
   return NULL;
