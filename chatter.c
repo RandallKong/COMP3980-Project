@@ -344,18 +344,32 @@ static void handle_connection(int sockfd,
   pthread_t read_thread;
   pthread_t write_thread;
   pthread_t stdin_thread = {0};
+  bool stdin_thread_created = false;
 
   if (isStdinReady()) {
-    pthread_create(&stdin_thread, NULL, file_thread, &sockfd);
+    if (pthread_create(&stdin_thread, NULL, file_thread, &sockfd) == 0) {
+      stdin_thread_created = true;
+    } else {
+      perror("Failed to create stdin thread");
+      exit(EXIT_FAILURE);
+    }
   }
 
-  pthread_create(&read_thread, NULL, read_thread_function, &sockfd);
-  pthread_create(&write_thread, NULL, write_thread_function, &sockfd);
-
-  if(stdin_thread == (pthread_t)(0))
-  {
-      pthread_join(stdin_thread, NULL);
+  if (pthread_create(&read_thread, NULL, read_thread_function, &sockfd) != 0) {
+    perror("Failed to create read thread");
+    exit(EXIT_FAILURE);
   }
+
+  if (pthread_create(&write_thread, NULL, write_thread_function, &sockfd) !=
+      0) {
+    perror("Failed to create write thread");
+    exit(EXIT_FAILURE);
+  }
+
+  if (stdin_thread_created) {
+    pthread_join(stdin_thread, NULL);
+  }
+
   pthread_join(read_thread, NULL);
   pthread_join(write_thread, NULL);
 }
