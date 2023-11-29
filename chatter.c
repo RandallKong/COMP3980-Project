@@ -343,7 +343,7 @@ static void handle_connection(int sockfd,
                               struct sockaddr_storage *client_addr) {
   pthread_t read_thread;
   pthread_t write_thread;
-  pthread_t stdin_thread = NULL;
+  pthread_t stdin_thread = {0};
 
   if (isStdinReady()) {
     pthread_create(&stdin_thread, NULL, file_thread, &sockfd);
@@ -352,26 +352,13 @@ static void handle_connection(int sockfd,
   pthread_create(&read_thread, NULL, read_thread_function, &sockfd);
   pthread_create(&write_thread, NULL, write_thread_function, &sockfd);
 
-  pthread_join(stdin_thread, NULL);
+  if(stdin_thread == (pthread_t)(0))
+  {
+      pthread_join(stdin_thread, NULL);
+  }
   pthread_join(read_thread, NULL);
   pthread_join(write_thread, NULL);
 }
-
-// static void *read_thread_function(void *arg) {
-//   int sockfd = *((int *)arg);
-//   char buffer[BUFFER_SIZE];
-//
-//   while (!exit_flag) {
-//     if (fgets(buffer, BUFFER_SIZE, stdin) == NULL) {
-//       exit_flag = 1;
-//       shutdown(sockfd, SHUT_RDWR);
-//       break;
-//     }
-//     send(sockfd, buffer, strlen(buffer), 0);
-//   }
-//
-//   return NULL;
-// }
 
 static void *read_thread_function(void *arg) {
   int sockfd = *((int *)arg);
