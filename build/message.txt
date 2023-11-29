@@ -1,0 +1,13 @@
+Welcome to the Example Text File!
+
+This file contains several lines of text,
+demonstrating how text files can be read
+line by line in many programming languages.
+
+Each line is separated by a newline character,
+which is typically represented as '\n' in code.
+
+Some lines are short.
+Others might be a bit longer, demonstrating variability.
+
+End of the example file.
