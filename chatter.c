@@ -424,7 +424,7 @@ static void *write_thread_function(void *arg) {
       break;
     }
     buffer[n] = '\0';
-    printf("Received: %s", buffer);
+    printf("Received:\n%s", buffer);
   }
 
   return NULL;
