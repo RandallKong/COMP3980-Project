@@ -112,7 +112,8 @@ static void parse_arguments(int argc, char *argv[], char **ip_address,
     *port = argv[2];
   } else {
     printf("invalid num args\n");
-    printf("usage: ./server [ip addr] [port]\n");
+    printf("usage: ./chat [ip addr] [port]\n");
+    printf("usage: ./chat [ip addr] [port] < [.txt file]\n");
     exit(EXIT_FAILURE);
   }
 }
@@ -300,7 +301,7 @@ static void socket_connect(int sockfd, struct sockaddr_storage *addr,
     exit(EXIT_FAILURE);
   }
 
-  printf("Connecting to: %s:%u\n", addr_str, port);
+  //  printf("Connecting to: %s:%u\n", addr_str, port);
   net_port = htons(port);
 
   if (addr->ss_family == AF_INET) {
@@ -321,11 +322,11 @@ static void socket_connect(int sockfd, struct sockaddr_storage *addr,
   }
 
   if (connect(sockfd, (struct sockaddr *)addr, addr_len) == -1) {
-    printf("there are no existing network server sockets available with this "
-           "ip and port\n");
+    printf("Port out of range or non existent ip addr\n");
     exit(EXIT_FAILURE);
   }
 
+  printf("Connecting to: %s:%u\n", addr_str, port);
   printf("You are now chatting with the host of %s:%u\n", addr_str, port);
 }
 
@@ -389,8 +390,7 @@ static void *read_thread_function(void *arg) {
       tty_fd = open("/dev/tty", O_RDONLY | O_CLOEXEC);
       if (tty_fd == -1) {
         perror("Unable to open /dev/tty");
-        continue; // Consider using continue instead of exit to keep the thread
-                  // running
+        continue;
       }
     } else {
       tty_fd = STDIN_FILENO;
@@ -406,7 +406,7 @@ static void *read_thread_function(void *arg) {
     }
 
     if (!is_stdin_terminal) {
-      fclose(input_stream); // Close the stream if it's not stdin
+      fclose(input_stream);
     }
   }
 
@@ -424,7 +424,7 @@ static void *write_thread_function(void *arg) {
       break;
     }
     buffer[n] = '\0';
-    printf("Received:\n%s", buffer);
+    printf("Received:%s", buffer);
   }
 
   return NULL;
@@ -461,19 +461,16 @@ bool isStdinReady(void) {
 static void *file_thread(void *arg) {
   int sockfd = *((int *)arg);
   char buffer[BUFFER_SIZE];
-  // int tty_fd;
 
   ssize_t n;
-  // Read data from stdin
+
   n = read(STDIN_FILENO, buffer, BUFFER_SIZE - 1);
   if (n > 0) {
     buffer[n] = '\n';
     send(sockfd, buffer, strlen(buffer), 0);
   } else if (n == 0) {
-    printf("im done");
-    // done
+    printf("No contents in file");
   } else if (errno != EINTR) {
-    // Error occurred, not caused by interrupt
     perror("read error");
     exit(EXIT_FAILURE);
   }
