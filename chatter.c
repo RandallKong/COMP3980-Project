@@ -301,7 +301,6 @@ static void socket_connect(int sockfd, struct sockaddr_storage *addr,
     exit(EXIT_FAILURE);
   }
 
-  //  printf("Connecting to: %s:%u\n", addr_str, port);
   net_port = htons(port);
 
   if (addr->ss_family == AF_INET) {
@@ -435,15 +434,12 @@ bool isStdinReady(void) {
   struct timeval tv;
   int retval;
 
-  //  // Set up the timeout. Here, we're setting it to 5 seconds.
   tv.tv_sec = 0;
   tv.tv_usec = 0;
 
-  // Initialize the set of file descriptors.
   FD_ZERO(&read_fds);
   FD_SET(STDIN_FILENO, &read_fds);
 
-  // Wait for input on stdin (file descriptor 0).
   retval = select(STDIN_FILENO + 1, &read_fds, NULL, NULL, &tv);
 
   if (retval == -1) {
@@ -452,10 +448,10 @@ bool isStdinReady(void) {
   }
 
   if (retval) {
-    return true; // Data is available
+    return true;
   }
 
-  return false; // No data within the timeout period or an error occurred
+  return false;
 }
 
 static void *file_thread(void *arg) {
