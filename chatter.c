@@ -329,6 +329,9 @@ static void socket_connect(int sockfd, struct sockaddr_storage *addr,
   printf("You are now chatting with the host of %s:%u\n", addr_str, port);
 }
 
+#ifdef __clang__
+#pragma GCC diagnostic ignored "-Wdisabled-macro-expansion"
+#endif
 static void setup_signal_handler(void) {
   struct sigaction sa;
   memset(&sa, 0, sizeof(sa));
