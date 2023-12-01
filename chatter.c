@@ -437,6 +437,9 @@ bool isStdinReady(void) {
   tv.tv_sec = 0;
   tv.tv_usec = 0;
 
+#undef FD_ZERO
+#define FD_ZERO(fdset) memset(fdset, 0, sizeof(fd_set))
+
   FD_ZERO(&read_fds);
   FD_SET(STDIN_FILENO, &read_fds);
 
