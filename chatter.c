@@ -43,8 +43,7 @@ static int socket_accept_connection(int server_fd,
 static void socket_connect(int sockfd, struct sockaddr_storage *addr,
                            in_port_t port);
 
-static void handle_connection(int client_sockfd,
-                              struct sockaddr_storage *client_addr);
+static void handle_connection(int client_sockfd);
 
 static void *read_thread_function(void *arg);
 
@@ -56,6 +55,9 @@ bool isStdinReady(void);
 
 static void *file_thread(void *arg);
 
+#define EXPECTED_NUM_ARGS 3
+#define IP_ADDR_INDEX 1
+#define PORT_INDEX 2
 #define BASE_TEN 10
 #define BUFFER_SIZE 1024
 #define MAX_CONNECTIONS 1
@@ -66,9 +68,12 @@ static volatile sig_atomic_t exit_flag = 0;
 int main(int argc, char *argv[]) {
   char *address;
   char *port_str;
+
   in_port_t port;
+
   int sockfd;
   struct sockaddr_storage addr;
+
   int bindResult;
 
   address = NULL;
@@ -85,19 +90,18 @@ int main(int argc, char *argv[]) {
   if (bindResult != -1) {
     struct sockaddr_storage client_addr;
     socklen_t client_addr_len = sizeof(client_addr);
+    int client_sockfd;
     start_listening(sockfd);
 
-    while (!exit_flag) {
-      int client_sockfd =
-          socket_accept_connection(sockfd, &client_addr, &client_addr_len);
-      if (client_sockfd != -1) {
-        handle_connection(client_sockfd, &client_addr);
-        socket_close(client_sockfd);
-      }
+    client_sockfd =
+        socket_accept_connection(sockfd, &client_addr, &client_addr_len);
+    if (client_sockfd != -1) {
+      handle_connection(client_sockfd);
+      socket_close(client_sockfd);
     }
   } else {
     socket_connect(sockfd, &addr, port);
-    handle_connection(sockfd, &addr);
+    handle_connection(sockfd);
   }
 
   socket_close(sockfd);
@@ -107,9 +111,9 @@ int main(int argc, char *argv[]) {
 
 static void parse_arguments(int argc, char *argv[], char **ip_address,
                             char **port) {
-  if (argc == 3) {
-    *ip_address = argv[1];
-    *port = argv[2];
+  if (argc == EXPECTED_NUM_ARGS) {
+    *ip_address = argv[IP_ADDR_INDEX];
+    *port = argv[PORT_INDEX];
   } else {
     printf("invalid num args\n");
     printf("usage: ./chat [ip addr] [port]\n");
@@ -207,6 +211,7 @@ static int socket_bind(int sockfd, struct sockaddr_storage *addr,
   socklen_t addr_len;
   void *vaddr;
   in_port_t net_port;
+
   int bindResult;
 
   net_port = htons(port);
@@ -332,6 +337,7 @@ static void socket_connect(int sockfd, struct sockaddr_storage *addr,
 #ifdef __clang__
 #pragma GCC diagnostic ignored "-Wdisabled-macro-expansion"
 #endif
+
 static void setup_signal_handler(void) {
   struct sigaction sa;
   memset(&sa, 0, sizeof(sa));
@@ -342,8 +348,7 @@ static void setup_signal_handler(void) {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
-static void handle_connection(int sockfd,
-                              struct sockaddr_storage *client_addr) {
+static void handle_connection(int sockfd) {
   pthread_t read_thread;
   pthread_t write_thread;
   pthread_t stdin_thread = {0};
@@ -385,7 +390,6 @@ static void *read_thread_function(void *arg) {
   while (!exit_flag) {
     int is_stdin_terminal;
     FILE *input_stream;
-    // Check if STDIN_FILENO is a terminal in each iteration
     is_stdin_terminal = isatty(STDIN_FILENO);
 
     if (!is_stdin_terminal) {
