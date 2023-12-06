@@ -59,7 +59,7 @@ static void *file_thread(void *arg);
 #define IP_ADDR_INDEX 1
 #define PORT_INDEX 2
 #define BASE_TEN 10
-#define BUFFER_SIZE 1024
+#define BUFFER_SIZE 5000
 #define MAX_CONNECTIONS 1
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -472,7 +472,7 @@ static void *file_thread(void *arg) {
 
   n = read(STDIN_FILENO, buffer, BUFFER_SIZE - 1);
   if (n > 0) {
-    buffer[n] = '\n';
+    buffer[n] = '\0';
     send(sockfd, buffer, strlen(buffer), 0);
   } else if (n == 0) {
     printf("No contents in file");
